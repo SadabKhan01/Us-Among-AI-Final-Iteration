@@ -14,12 +14,19 @@ interface ActiveTask {
   text: string;
 }
 
+export interface TaskResult {
+  wpm: number;
+  suspicionScore: number;
+  verdict: string;
+}
+
 export const useGameLoop = (playerName: string) => {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [myPos, setMyPos] = useState({ x: 400, y: 300 });
   const [suspicion, setSuspicion] = useState(0);
   const [activeTask, setActiveTask] = useState<ActiveTask | null>(null);
+  const [taskResult, setTaskResult] = useState<TaskResult | null>(null);
 
   useEffect(() => {
     const newSocket = io("http://localhost:3001");
@@ -33,16 +40,21 @@ export const useGameLoop = (playerName: string) => {
       setPlayers(allPlayers);
     });
 
-    newSocket.on("suspicion-update", (data: { score: number }) => {
+    newSocket.on("suspicion-update", (data: { score: number; wpm?: number; verdict?: string }) => {
       setSuspicion(data.score);
+      if (data.wpm !== undefined && data.verdict !== undefined) {
+        setTaskResult({ wpm: data.wpm, suspicionScore: data.score, verdict: data.verdict });
+      }
     });
 
     newSocket.on("task-start:typewriter", (data: { text: string }) => {
+      setTaskResult(null);
       setActiveTask({ type: "typewriter", text: data.text });
     });
 
     newSocket.on("task-complete:typewriter", () => {
       setActiveTask(null);
+      // taskResult stays set so the result screen can show
     });
 
     return () => {
@@ -82,5 +94,5 @@ export const useGameLoop = (playerName: string) => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [myPos, socket, activeTask]);
 
-  return { players, myPos, suspicion, socket, activeTask, setActiveTask };
+  return { players, myPos, suspicion, socket, activeTask, setActiveTask, taskResult, setTaskResult };
 };

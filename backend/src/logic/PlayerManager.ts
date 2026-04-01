@@ -9,11 +9,10 @@ export interface Player {
   y: number;
   suspicionScore: number;
   keystrokeBuffer: KeystrokeData[];
-  activeTask?: {
-    type: "typewriter";
-    targetText: string;
-    keystrokes: KeystrokeData[];
-  };
+  activeTask?:
+    | { type: "typewriter"; targetText: string; keystrokes: KeystrokeData[]; startedAt: number }
+    | { type: "sorting"; numbers: number[]; keystrokes: KeystrokeData[]; startedAt: number }
+    | { type: "notes"; note: string; keystrokes: KeystrokeData[]; startedAt: number };
 }
 
 export class PlayerManager {
@@ -52,7 +51,6 @@ export class PlayerManager {
     const player = this.players.get(id);
     if (player) {
       player.keystrokeBuffer.push(data);
-      // Limit buffer size to last 50 strokes
       if (player.keystrokeBuffer.length > 50) {
         player.keystrokeBuffer.shift();
       }
@@ -64,31 +62,37 @@ export class PlayerManager {
     if (!player || player.keystrokeBuffer.length < 5) return player?.suspicionScore || 0;
 
     const result = await AIEvaluator.evaluate(player.keystrokeBuffer);
-    
-    // We update suspicion based on "humanness" score.
-    // If humanness is 100, suspicion goes down.
-    // If humanness is 0, suspicion goes up.
     const humanness = result.humannessScore;
-    const suspicionImpact = (50 - humanness) / 10; // Simple linear impact
-    
+    const suspicionImpact = (humanness - 50) / 10;
     player.suspicionScore = Math.max(0, Math.min(100, player.suspicionScore + suspicionImpact));
-    
-    // Clear buffer after evaluation
     player.keystrokeBuffer = [];
-    
     return player.suspicionScore;
   }
+
+  // --- Task Start ---
 
   startTask(id: string, targetText: string): void {
     const player = this.players.get(id);
     if (player) {
-      player.activeTask = {
-        type: "typewriter",
-        targetText,
-        keystrokes: [],
-      };
+      player.activeTask = { type: "typewriter", targetText, keystrokes: [], startedAt: Date.now() };
     }
   }
+
+  startSortingTask(id: string, numbers: number[]): void {
+    const player = this.players.get(id);
+    if (player) {
+      player.activeTask = { type: "sorting", numbers, keystrokes: [], startedAt: Date.now() };
+    }
+  }
+
+  startNotesTask(id: string, note: string): void {
+    const player = this.players.get(id);
+    if (player) {
+      player.activeTask = { type: "notes", note, keystrokes: [], startedAt: Date.now() };
+    }
+  }
+
+  // --- Keystroke Buffering ---
 
   handleTaskKeystroke(id: string, data: KeystrokeData): void {
     const player = this.players.get(id);
@@ -97,33 +101,78 @@ export class PlayerManager {
     }
   }
 
-  async evaluateTypewriterTask(id: string): Promise<number> {
-    const player = this.players.get(id);
-    if (!player || !player.activeTask) return player?.suspicionScore || 0;
+  // --- Shared Evaluation Pipeline ---
 
-    const keystrokes = player.activeTask.keystrokes;
-    const targetText = player.activeTask.targetText;
+  private async runTaskEvaluation(
+    keystrokes: KeystrokeData[],
+    aiEvaluator: (ks: KeystrokeData[]) => Promise<{ humannessScore: number }>,
+    playerId: string,
+    taskDurationMs: number,
+    preTypingPauseMs?: number
+  ): Promise<number> {
+    const player = this.players.get(playerId);
+    if (!player) return 0;
 
-    // 1. Heuristic Check (High performance)
-    const heuristic = HeuristicEvaluator.analyze(keystrokes);
+    const heuristic = HeuristicEvaluator.analyze(keystrokes, taskDurationMs, preTypingPauseMs);
     let humanness = heuristic.humannessScore;
-    
-    // 2. AI Check (Grey Area)
+
     if (heuristic.needsAI) {
-      console.log(`[PlayerManager] Escallating to AI for ${player.id}`);
-      const result = await AIEvaluator.evaluateTypewriter(keystrokes, targetText);
+      console.log(`[PlayerManager] Escalating to AI for ${playerId}`);
+      const result = await aiEvaluator(keystrokes);
       humanness = result.humannessScore;
     }
-    
-    // Normalized impact: bots on reverse tasks are penalized heavily
-    const suspicionImpact = (50 - humanness) / 5; 
-    
+
+    // High humanness = acting human = more suspicious
+    // humanness 100 → +10 suspicion, humanness 0 → -10 suspicion
+    const suspicionImpact = (humanness - 50) / 5;
     player.suspicionScore = Math.max(0, Math.min(100, player.suspicionScore + suspicionImpact));
-    
-    // Clear task after evaluation
     player.activeTask = undefined;
-    
     return player.suspicionScore;
+  }
+
+  // --- Task Submit ---
+
+  async evaluateTypewriterTask(id: string): Promise<{ suspicionScore: number; wpm: number; hasBackspaces: boolean }> {
+    const player = this.players.get(id);
+    if (!player || !player.activeTask || player.activeTask.type !== "typewriter") {
+      return { suspicionScore: player?.suspicionScore || 0, wpm: 0, hasBackspaces: false };
+    }
+    const { keystrokes, targetText, startedAt } = player.activeTask;
+    const taskDurationMs = Date.now() - startedAt;
+
+    // WPM: count spaces typed (proxy for word boundaries in reversed text)
+    const spaceCount = keystrokes.filter((k) => k.key === " ").length;
+    const typingDurationMs =
+      keystrokes.length >= 2
+        ? keystrokes[keystrokes.length - 1]!.timestamp - keystrokes[0]!.timestamp
+        : taskDurationMs;
+    const wpm = typingDurationMs > 0 ? Math.round((spaceCount / typingDurationMs) * 60000) : 0;
+    const hasBackspaces = keystrokes.some((k) => k.key === "Backspace");
+
+    const suspicionScore = await this.runTaskEvaluation(
+      keystrokes,
+      (ks) => AIEvaluator.evaluateTypewriter(ks, targetText),
+      id,
+      taskDurationMs
+    );
+    return { suspicionScore, wpm, hasBackspaces };
+  }
+
+  async evaluateSortingTask(id: string): Promise<number> {
+    const player = this.players.get(id);
+    if (!player || !player.activeTask || player.activeTask.type !== "sorting") return player?.suspicionScore || 0;
+    const { keystrokes, numbers, startedAt } = player.activeTask;
+    const taskDurationMs = Date.now() - startedAt;
+    const preTypingPauseMs = (keystrokes[0]?.timestamp ?? Date.now()) - startedAt;
+    return this.runTaskEvaluation(keystrokes, (ks) => AIEvaluator.evaluateSorting(ks, numbers), id, taskDurationMs, preTypingPauseMs);
+  }
+
+  async evaluateNotesTask(id: string): Promise<number> {
+    const player = this.players.get(id);
+    if (!player || !player.activeTask || player.activeTask.type !== "notes") return player?.suspicionScore || 0;
+    const { keystrokes, note, startedAt } = player.activeTask;
+    const taskDurationMs = Date.now() - startedAt;
+    return this.runTaskEvaluation(keystrokes, (ks) => AIEvaluator.evaluateNotes(ks, note), id, taskDurationMs);
   }
 
   getAllPlayers(): Player[] {

@@ -20,23 +20,23 @@ export class AIEvaluator {
   private static generalPrompt = `
     Analyze the following sequence of keystrokes and their timing.
     Assess whether the behavior appears to be from a human or an AI/bot.
-    
+
     Human patterns show:
     - Varying delays between keys (irregularity).
     - Longer delays for distant keys.
     - Subtle pauses after certain patterns.
     - Possible backspaces or corrections.
-    
+
     Machine patterns show:
     - Highly consistent timing (fixed ms intervals).
     - Impossible speed for complex tasks.
     - Zero variation in press duration (if provided).
-    
+
     Data is provided as an array of { key: string, timestamp: number }.
-    
+
     Return ONLY a JSON object with:
     {
-      "humannessScore": 0-100, // 100 = perfectly human, 0 = machine
+      "humannessScore": 0-100,
       "reasoning": "A brief explanation"
     }
   `;
@@ -44,16 +44,56 @@ export class AIEvaluator {
   private static typewriterPrompt = `
     Analyze this REVERSE TEXT task performance.
     The user was asked to type the paragraph character-by-character in reverse.
-    
+
     Target Text (Reversed): [TARGET]
-    
-    Bot Traps for Tasks:
+
+    Bot Traps:
     1. Humans find character-by-character reversal extremely difficult. They pause, hesitate, and often make typos.
-    2. Bots are "instant" or show "mechanical precision" (e.g., exactly 50ms between every character).
+    2. Bots type with mechanical precision (e.g., exactly 50ms between every character).
     3. Humans often double-check the original text, leading to irregular rhythmic pauses.
-    
+
     Data: [KEYSTROKES]
-    
+
+    Return ONLY a JSON object with:
+    {
+      "humannessScore": 0-100,
+      "reasoning": "A brief explanation"
+    }
+  `;
+
+  private static sortingPrompt = `
+    Analyze this NUMBER SORTING task performance.
+    The user was given 5 integers and asked to type them in ascending order.
+
+    Numbers given: [TARGET]
+
+    Bot Traps:
+    1. Humans pause to think before typing — expect irregular delays, especially at the start.
+    2. Bots sort and type instantly with uniform key intervals.
+    3. Humans may backspace and correct mistakes.
+
+    Data: [KEYSTROKES]
+
+    Return ONLY a JSON object with:
+    {
+      "humannessScore": 0-100,
+      "reasoning": "A brief explanation"
+    }
+  `;
+
+  private static notesPrompt = `
+    Analyze this MUSIC NOTE IDENTIFICATION task performance.
+    The user was shown a music note symbol and asked to type its name (e.g. "c sharp", "quarter note").
+
+    Note shown: [TARGET]
+
+    Bot Traps:
+    1. Humans pause to recall the note name — expect a thinking delay before the first keystroke.
+    2. Bots respond instantly with zero hesitation.
+    3. Humans may type slowly, self-correct, or rephrase.
+
+    Data: [KEYSTROKES]
+
     Return ONLY a JSON object with:
     {
       "humannessScore": 0-100,
@@ -62,14 +102,14 @@ export class AIEvaluator {
   `;
 
   static async generateParagraph(): Promise<string> {
-    if (!process.env.GOOGLE_API_KEY) return "The quick brown\nfox jumps over\nthe lazy dog."; 
-    
+    if (!process.env.GOOGLE_API_KEY) return "The quick brown fox jumps over the lazy dog near the river.";
+
     try {
-      const result = await model.generateContent("Generate a simple, unique 15-word paragraph, split into exactly 3 lines. Do not include any formatting or other text.");
-      return result.response.text();
+      const result = await model.generateContent("Generate a simple, unique sentence of exactly 15 words. Return only the sentence with no formatting, punctuation, or line breaks.");
+      return result.response.text().trim().replace(/\n/g, " ");
     } catch (error) {
       console.error("Paragraph generation error:", error);
-      return "Default text for\ntesting the system\nin 3 lines.";
+      return "The quick brown fox jumps over the lazy dog near the river.";
     }
   }
 
@@ -79,6 +119,16 @@ export class AIEvaluator {
 
   static async evaluateTypewriter(keystrokes: KeystrokeData[], targetText: string): Promise<EvaluationResult> {
     const prompt = this.typewriterPrompt.replace("[TARGET]", targetText);
+    return this.runEvaluation(prompt, JSON.stringify(keystrokes));
+  }
+
+  static async evaluateSorting(keystrokes: KeystrokeData[], numbers: number[]): Promise<EvaluationResult> {
+    const prompt = this.sortingPrompt.replace("[TARGET]", numbers.join(", "));
+    return this.runEvaluation(prompt, JSON.stringify(keystrokes));
+  }
+
+  static async evaluateNotes(keystrokes: KeystrokeData[], note: string): Promise<EvaluationResult> {
+    const prompt = this.notesPrompt.replace("[TARGET]", note);
     return this.runEvaluation(prompt, JSON.stringify(keystrokes));
   }
 
