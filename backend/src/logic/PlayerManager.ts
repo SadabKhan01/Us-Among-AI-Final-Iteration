@@ -158,13 +158,16 @@ export class PlayerManager {
     return { suspicionScore, wpm, hasBackspaces };
   }
 
-  async evaluateSortingTask(id: string): Promise<number> {
+  async evaluateSortingTask(id: string): Promise<{ suspicionScore: number; taskDurationMs: number }> {
     const player = this.players.get(id);
-    if (!player || !player.activeTask || player.activeTask.type !== "sorting") return player?.suspicionScore || 0;
+    if (!player || !player.activeTask || player.activeTask.type !== "sorting") {
+      return { suspicionScore: player?.suspicionScore || 0, taskDurationMs: 0 };
+    }
     const { keystrokes, numbers, startedAt } = player.activeTask;
     const taskDurationMs = Date.now() - startedAt;
     const preTypingPauseMs = (keystrokes[0]?.timestamp ?? Date.now()) - startedAt;
-    return this.runTaskEvaluation(keystrokes, (ks) => AIEvaluator.evaluateSorting(ks, numbers), id, taskDurationMs, preTypingPauseMs);
+    const suspicionScore = await this.runTaskEvaluation(keystrokes, (ks) => AIEvaluator.evaluateSorting(ks, numbers), id, taskDurationMs, preTypingPauseMs);
+    return { suspicionScore, taskDurationMs };
   }
 
   async evaluateNotesTask(id: string): Promise<number> {

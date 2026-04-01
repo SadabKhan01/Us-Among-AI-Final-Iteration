@@ -109,9 +109,34 @@ io.on("connection", (socket) => {
   });
 
   socket.on("submit-task:sorting", async () => {
-    const newScore = await playerManager.evaluateSortingTask(socket.id);
+    const { suspicionScore, taskDurationMs } = await playerManager.evaluateSortingTask(socket.id);
+    const taskDurationSec = taskDurationMs / 1000;
+
+    // Time-based calibration:
+    // < 5s  → almost certainly AI (suspicion 85–100, linear)
+    // 5–15s → human range, scales down from 50 → 10
+    // > 15s → clearly human (suspicion 10)
+    let timeSuspicion: number;
+    let verdict: string;
+
+    if (taskDurationSec < 5) {
+      // 0s = 100, 5s = 85, linear
+      timeSuspicion = Math.round(100 - (taskDurationSec / 5) * 15);
+      verdict = taskDurationSec < 2 ? "AI" : "Highly Suspicious";
+    } else if (taskDurationSec <= 15) {
+      // 5s = 50, 15s = 10, linear
+      timeSuspicion = Math.round(50 - ((taskDurationSec - 5) / 10) * 40);
+      verdict = taskDurationSec < 8 ? "Suspicious" : "Likely Human";
+    } else {
+      timeSuspicion = 10;
+      verdict = "Human";
+    }
+
+    // Blend: time (70%) + heuristic/AI (30%)
+    const blendedScore = Math.min(100, Math.round(timeSuspicion * 0.7 + suspicionScore * 0.3));
+
     io.emit("players-update", playerManager.getAllPlayers());
-    socket.emit("suspicion-update", { score: newScore });
+    socket.emit("suspicion-update", { score: blendedScore, taskDurationSec: Math.round(taskDurationSec * 10) / 10, verdict });
     socket.emit("task-complete:sorting");
   });
 
