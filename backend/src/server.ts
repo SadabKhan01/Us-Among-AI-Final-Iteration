@@ -1,18 +1,21 @@
 import express from "express";
+import type { Request, Response } from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
 import { PlayerManager } from "./logic/PlayerManager.js";
 import { AIEvaluator } from "./services/AIEvaluator.js";
+import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+
 const io = new Server(httpServer, {
   cors: {
-    origin: "*", 
+    origin: "*",
     methods: ["GET", "POST"],
   },
 });
@@ -75,7 +78,57 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = 3001; 
+const PORT = 3001;
 httpServer.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+});
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+});
+
+export async function askGemini(text: string): Promise<string> {
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: text,
+    });
+
+    return response.text ?? "";
+  } catch (error) {
+    console.error("Gemini error:", error);
+    throw new Error("Failed to get response from Gemini");
+  }
+}
+
+app.get("/sorting", async (req: Request, res: Response) => {
+  try {
+    const question = `
+Return ONLY a JSON array of 5 integers.
+Example: [1,2,3,4,5]
+`;
+
+    const answer = await askGemini(question);
+
+    res.json({ answer });
+
+  } catch (error: unknown) {
+    console.error(error);
+
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+app.get("/notes", async (req: Request, res: Response) => {
+  const notes = ["♩", "♪", "♫", "♬", "♭", "♮", "♯"];
+
+  const getRandomElement = <T>(arr: T[]): T => {
+    return arr[Math.floor(Math.random() * arr.length)];
+  };
+
+  const randomNote = getRandomElement(notes);
+
+  res.json(randomNote);
 });
