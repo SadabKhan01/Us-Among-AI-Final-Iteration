@@ -48,21 +48,7 @@ export async function askGemini(text: string): Promise<string> {
   }
 }
 
-function extractArray(text: string): number[] {
-  try {
-    const parsed = JSON.parse(text);
-    if (!Array.isArray(parsed)) throw new Error();
-    return parsed;
-  } catch {
-    const match = text.match(/\[.*?\]/s);
-    if (!match) throw new Error("No array found in response");
 
-    const parsed = JSON.parse(match[0]);
-    if (!Array.isArray(parsed)) throw new Error();
-
-    return parsed;
-  }
-}
 
 app.get("/sorting", async (req: Request, res: Response) => {
   try {
@@ -72,9 +58,9 @@ Example: [1,2,3,4,5]
 `;
 
     const answer = await askGemini(question);
-    const array = extractArray(answer);
+    
 
-    res.json({ array });
+    res.json({ answer });
 
   } catch (error: unknown) {
     console.error(error);
@@ -83,4 +69,20 @@ Example: [1,2,3,4,5]
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }
+});
+
+app.get("/notes", async (req: Request, res: Response) => {
+  
+    const notes = ["♩", "♪", "♫", "♬", "♭", "♮", "♯"];
+   
+    const getRandomElement = <T>(arr: T[]): T => {
+        return arr[Math.floor(Math.random() * arr.length)];
+      };
+
+    const randomNote = getRandomElement(notes);
+
+
+    res.json(randomNote);
+ 
+  
 });
