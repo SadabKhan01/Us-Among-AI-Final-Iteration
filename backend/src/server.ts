@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
 import { PlayerManager } from "./logic/PlayerManager.js";
+import { AIEvaluator } from "./services/AIEvaluator.js";
 
 dotenv.config();
 
@@ -26,7 +27,7 @@ io.on("connection", (socket) => {
 
   // Handle player join
   socket.on("join", (data: { name: string }) => {
-    const player = playerManager.addPlayer(socket.id, data.name);
+    playerManager.addPlayer(socket.id, data.name);
     io.emit("players-update", playerManager.getAllPlayers());
   });
 
@@ -36,12 +37,31 @@ io.on("connection", (socket) => {
     io.emit("players-update", playerManager.getAllPlayers());
   });
 
-  // Handle keystrokes (for suspicion analysis)
+  // Handle general keystrokes (passive analysis)
   socket.on("keystroke", (data: { key: string, timestamp: number }) => {
     playerManager.addKeystroke(socket.id, data);
   });
 
-  // Trigger evaluation (e.g. after a task)
+  // --- Task Events ---
+
+  socket.on("request-task:typewriter", async () => {
+    const paragraph = await AIEvaluator.generateParagraph();
+    playerManager.startTask(socket.id, paragraph);
+    socket.emit("task-start:typewriter", { text: paragraph });
+  });
+
+  socket.on("task-keystroke", (data: { key: string, timestamp: number }) => {
+    playerManager.handleTaskKeystroke(socket.id, data);
+  });
+
+  socket.on("submit-task:typewriter", async () => {
+    const newScore = await playerManager.evaluateTypewriterTask(socket.id);
+    io.emit("players-update", playerManager.getAllPlayers());
+    socket.emit("suspicion-update", { score: newScore });
+    socket.emit("task-complete:typewriter");
+  });
+
+  // Trigger general evaluation
   socket.on("evaluate-suspicion", async () => {
     const newScore = await playerManager.evaluatePlayer(socket.id);
     io.emit("players-update", playerManager.getAllPlayers());

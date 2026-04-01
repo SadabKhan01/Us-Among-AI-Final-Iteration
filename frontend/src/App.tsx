@@ -1,11 +1,13 @@
 import React, { useRef, useEffect } from "react";
+import { AnimatePresence } from "framer-motion";
 import "./index.css";
 import { SuspicionBar } from "./components/SuspicionBar";
+import { TypewriterTask } from "./components/tasks/TypewriterTask";
 import { useGameLoop } from "./hooks/useGameLoop";
 
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { players, myPos, suspicion } = useGameLoop("Player1");
+  const { players, myPos, suspicion, activeTask, socket, setActiveTask } = useGameLoop("Player1");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -43,6 +45,23 @@ const App: React.FC = () => {
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <SuspicionBar score={suspicion} />
       
+      <AnimatePresence>
+        {activeTask?.type === "typewriter" && (
+          <TypewriterTask
+            text={activeTask.text}
+            onKey={(key, timestamp) => {
+              socket?.emit("task-keystroke", { key, timestamp });
+            }}
+            onComplete={() => {
+              socket?.emit("submit-task:typewriter");
+            }}
+            onCancel={() => {
+              setActiveTask(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       <div style={{
         position: "fixed",
         bottom: 24,
@@ -52,7 +71,7 @@ const App: React.FC = () => {
         zIndex: 100
       }}>
         <p>Use <b>WASD</b> to move.</p>
-        <p>Press <b>Enter</b> to trigger AI evaluation.</p>
+        <p>Press <b>E</b> near a terminal to start task.</p>
       </div>
 
       <canvas

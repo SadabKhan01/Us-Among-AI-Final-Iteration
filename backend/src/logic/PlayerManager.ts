@@ -1,5 +1,6 @@
 import { AIEvaluator } from "../services/AIEvaluator.js";
 import type { KeystrokeData } from "../services/AIEvaluator.js";
+import { HeuristicEvaluator } from "../services/HeuristicEvaluator.js";
 
 export interface Player {
   id: string;
@@ -8,6 +9,11 @@ export interface Player {
   y: number;
   suspicionScore: number;
   keystrokeBuffer: KeystrokeData[];
+  activeTask?: {
+    type: "typewriter";
+    targetText: string;
+    keystrokes: KeystrokeData[];
+  };
 }
 
 export class PlayerManager {
@@ -69,6 +75,53 @@ export class PlayerManager {
     
     // Clear buffer after evaluation
     player.keystrokeBuffer = [];
+    
+    return player.suspicionScore;
+  }
+
+  startTask(id: string, targetText: string): void {
+    const player = this.players.get(id);
+    if (player) {
+      player.activeTask = {
+        type: "typewriter",
+        targetText,
+        keystrokes: [],
+      };
+    }
+  }
+
+  handleTaskKeystroke(id: string, data: KeystrokeData): void {
+    const player = this.players.get(id);
+    if (player && player.activeTask) {
+      player.activeTask.keystrokes.push(data);
+    }
+  }
+
+  async evaluateTypewriterTask(id: string): Promise<number> {
+    const player = this.players.get(id);
+    if (!player || !player.activeTask) return player?.suspicionScore || 0;
+
+    const keystrokes = player.activeTask.keystrokes;
+    const targetText = player.activeTask.targetText;
+
+    // 1. Heuristic Check (High performance)
+    const heuristic = HeuristicEvaluator.analyze(keystrokes);
+    let humanness = heuristic.humannessScore;
+    
+    // 2. AI Check (Grey Area)
+    if (heuristic.needsAI) {
+      console.log(`[PlayerManager] Escallating to AI for ${player.id}`);
+      const result = await AIEvaluator.evaluateTypewriter(keystrokes, targetText);
+      humanness = result.humannessScore;
+    }
+    
+    // Normalized impact: bots on reverse tasks are penalized heavily
+    const suspicionImpact = (50 - humanness) / 5; 
+    
+    player.suspicionScore = Math.max(0, Math.min(100, player.suspicionScore + suspicionImpact));
+    
+    // Clear task after evaluation
+    player.activeTask = undefined;
     
     return player.suspicionScore;
   }

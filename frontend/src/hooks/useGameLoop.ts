@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { io, Socket } from "socket.io-client";
 
 interface Player {
@@ -9,11 +9,17 @@ interface Player {
   suspicionScore: number;
 }
 
+interface ActiveTask {
+  type: "typewriter";
+  text: string;
+}
+
 export const useGameLoop = (playerName: string) => {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [myPos, setMyPos] = useState({ x: 400, y: 300 });
   const [suspicion, setSuspicion] = useState(0);
+  const [activeTask, setActiveTask] = useState<ActiveTask | null>(null);
 
   useEffect(() => {
     const newSocket = io("http://localhost:3001");
@@ -31,6 +37,14 @@ export const useGameLoop = (playerName: string) => {
       setSuspicion(data.score);
     });
 
+    newSocket.on("task-start:typewriter", (data: { text: string }) => {
+      setActiveTask({ type: "typewriter", text: data.text });
+    });
+
+    newSocket.on("task-complete:typewriter", () => {
+      setActiveTask(null);
+    });
+
     return () => {
       newSocket.disconnect();
     };
@@ -39,6 +53,8 @@ export const useGameLoop = (playerName: string) => {
   // Handle Movement
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (activeTask) return; // Don't move while doing a task
+
       const step = 8;
       let newX = myPos.x;
       let newY = myPos.y;
@@ -53,18 +69,18 @@ export const useGameLoop = (playerName: string) => {
         socket?.emit("move", { x: newX, y: newY });
       }
 
-      // Record keystroke for analysis
+      // Record keystroke for general analysis
       socket?.emit("keystroke", { key: e.key, timestamp: Date.now() });
 
-      // Trigger evaluation on specific keys (e.g.Space for tasks)
-      if (e.key === "Enter") {
-        socket?.emit("evaluate-suspicion");
+      // Proximity Trigger logic should go here, using 'Enter' for now to request task
+      if (e.key === "e") {
+        socket?.emit("request-task:typewriter");
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [myPos, socket]);
+  }, [myPos, socket, activeTask]);
 
-  return { players, myPos, suspicion, socket };
+  return { players, myPos, suspicion, socket, activeTask, setActiveTask };
 };
