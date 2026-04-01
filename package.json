@@ -1,0 +1,11 @@
+{
+  "dependencies": {
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^1.7.0",
+    "socket.io-client": "^4.8.3",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@types/socket.io-client": "^1.4.36"
+  }
+}
