@@ -64,39 +64,17 @@ io.on("connection", (socket) => {
     socket.emit("task-start:typewriter", { text: paragraph });
   });
 
-  socket.on("submit-task:typewriter", async () => {
-    const { suspicionScore, wpm, hasBackspaces } = await playerManager.evaluateTypewriterTask(socket.id);
+  socket.on("submit-task:typewriter", async (data: { answer: string }) => {
+    const { suspicionScore, wpm } = await playerManager.evaluateTypewriterTask(socket.id, data?.answer ?? "");
 
-    // WPM-based suspicion calibration (0–100 scale, higher = more suspicious)
-    // Above 50 WPM: linearly scale from 50 suspicion at 50 WPM → 100 at 150+ WPM
-    // Below 40 WPM with no mistakes: moderate suspicion (could be a careful bot)
-    // Below 40 WPM with mistakes: low suspicion (very human)
-    let wpmSuspicion: number;
-    let verdict: string;
-
-    if (wpm > 50) {
-      // Scale: 50 WPM = 50 suspicion, 150 WPM = 100 suspicion (capped)
-      wpmSuspicion = Math.min(100, Math.round(50 + ((wpm - 50) / 100) * 50));
-      verdict = wpm >= 120 ? "AI" : wpm >= 80 ? "Highly Suspicious" : "Suspicious";
-    } else if (wpm <= 40 && hasBackspaces) {
-      // Mistakes present — very human-like
-      wpmSuspicion = Math.max(0, Math.round(10 + (wpm / 40) * 15)); // 10–25
-      verdict = "Human";
-    } else if (wpm <= 40) {
-      // No mistakes but slow — could be careful bot, mild suspicion
-      wpmSuspicion = Math.round(20 + (wpm / 40) * 20); // 20–40
-      verdict = "Likely Human";
-    } else {
-      // 40–50 WPM gap: interpolate between low and moderate suspicion
-      wpmSuspicion = Math.round(35 + ((wpm - 40) / 10) * 15); // 35–50
-      verdict = "Uncertain";
-    }
-
-    // Blend WPM suspicion (60%) with heuristic/AI suspicion score (40%)
-    const blendedScore = Math.min(100, Math.round(wpmSuspicion * 0.6 + suspicionScore * 0.4));
+    const verdict =
+      suspicionScore >= 80 ? "Definitely Human" :
+      suspicionScore >= 60 ? "Likely Human" :
+      suspicionScore >= 40 ? "Ambiguous" :
+      suspicionScore >= 20 ? "Likely AI" : "Perfect AI";
 
     io.emit("players-update", playerManager.getAllPlayers());
-    socket.emit("suspicion-update", { score: blendedScore, wpm, verdict });
+    socket.emit("suspicion-update", { score: suspicionScore, wpm, verdict });
     socket.emit("task-complete:typewriter");
   });
 
@@ -108,35 +86,18 @@ io.on("connection", (socket) => {
     socket.emit("task-start:sorting", { numbers });
   });
 
-  socket.on("submit-task:sorting", async () => {
-    const { suspicionScore, taskDurationMs } = await playerManager.evaluateSortingTask(socket.id);
+  socket.on("submit-task:sorting", async (data: { answer: string }) => {
+    const { suspicionScore, taskDurationMs } = await playerManager.evaluateSortingTask(socket.id, data?.answer ?? "");
     const taskDurationSec = taskDurationMs / 1000;
 
-    // Time-based calibration:
-    // < 5s  → almost certainly AI (suspicion 85–100, linear)
-    // 5–15s → human range, scales down from 50 → 10
-    // > 15s → clearly human (suspicion 10)
-    let timeSuspicion: number;
-    let verdict: string;
-
-    if (taskDurationSec < 5) {
-      // 0s = 100, 5s = 85, linear
-      timeSuspicion = Math.round(100 - (taskDurationSec / 5) * 15);
-      verdict = taskDurationSec < 2 ? "AI" : "Highly Suspicious";
-    } else if (taskDurationSec <= 15) {
-      // 5s = 50, 15s = 10, linear
-      timeSuspicion = Math.round(50 - ((taskDurationSec - 5) / 10) * 40);
-      verdict = taskDurationSec < 8 ? "Suspicious" : "Likely Human";
-    } else {
-      timeSuspicion = 10;
-      verdict = "Human";
-    }
-
-    // Blend: time (70%) + heuristic/AI (30%)
-    const blendedScore = Math.min(100, Math.round(timeSuspicion * 0.7 + suspicionScore * 0.3));
+    const verdict =
+      suspicionScore >= 80 ? "Definitely Human" :
+      suspicionScore >= 60 ? "Likely Human" :
+      suspicionScore >= 40 ? "Ambiguous" :
+      suspicionScore >= 20 ? "Likely AI" : "Perfect AI";
 
     io.emit("players-update", playerManager.getAllPlayers());
-    socket.emit("suspicion-update", { score: blendedScore, taskDurationSec: Math.round(taskDurationSec * 10) / 10, verdict });
+    socket.emit("suspicion-update", { score: suspicionScore, taskDurationSec: Math.round(taskDurationSec * 10) / 10, verdict });
     socket.emit("task-complete:sorting");
   });
 
@@ -157,7 +118,12 @@ io.on("connection", (socket) => {
       // Final — evaluate via Gemini
       const newScore = await playerManager.evaluateNotesTask(socket.id);
       io.emit("players-update", playerManager.getAllPlayers());
-      socket.emit("suspicion-update", { score: newScore, verdict: correct ? "Answered Correctly" : "Failed All Attempts" });
+      const verdict =
+        newScore >= 80 ? "Definitely Human" :
+        newScore >= 60 ? "Likely Human" :
+        newScore >= 40 ? "Ambiguous" :
+        newScore >= 20 ? "Likely AI" : "Perfect AI";
+      socket.emit("suspicion-update", { score: newScore, verdict: `${verdict} (${correct ? "Correct" : "Failed"})` });
       socket.emit("task-complete:notes", { correct, attemptsLeft });
     } else {
       socket.emit("attempt-result:notes", { correct, attemptsLeft });

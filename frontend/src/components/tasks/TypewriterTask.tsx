@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 interface TypewriterTaskProps {
   text: string;
   onKey: (key: string, timestamp: number) => void;
-  onComplete: () => void;
+  onComplete: (answer: string) => void;
   onCancel: () => void;
 }
 
@@ -24,7 +24,7 @@ export const TypewriterTask: React.FC<TypewriterTaskProps> = ({ text, onKey, onC
     setInput(val);
 
     if (val === reversedTarget) {
-      onComplete();
+      onComplete(val);
     }
   };
 

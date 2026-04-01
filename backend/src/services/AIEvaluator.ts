@@ -43,21 +43,51 @@ export class AIEvaluator {
 
   private static typewriterPrompt = `
     Analyze this REVERSE TEXT task performance.
-    The user was asked to type the paragraph character-by-character in reverse.
+    The user was asked to type a sentence character-by-character in reverse order.
 
-    Target Text (Reversed): [TARGET]
+    Context: [TARGET]
 
-    Bot Traps:
-    1. Humans find character-by-character reversal extremely difficult. They pause, hesitate, and often make typos.
-    2. Bots type with mechanical precision (e.g., exactly 50ms between every character).
-    3. Humans often double-check the original text, leading to irregular rhythmic pauses.
+    Evaluate ALL of the following signals:
 
-    Data: [KEYSTROKES]
+    1. WPM (words per minute):
+       - > 80 WPM: impossible for a human doing character reversal → bot
+       - 40–80 WPM: suspiciously fast
+       - 15–40 WPM: plausible human range
+       - < 15 WPM: slow and careful, very human
+
+    2. TOTAL TIME: Time from task shown to submission.
+       - < 5s: almost certainly AI (text reversal takes mental effort)
+       - 5–20s: fast but possible
+       - > 20s: human range for this cognitive task
+
+    3. KEYSTROKE INTERVAL stdDev:
+       - < 20ms: robotic uniformity → bot
+       - > 60ms: natural human variation
+
+    4. BACKSPACES: Character reversal is hard — humans make mistakes.
+       - Zero backspaces + correct answer: very suspicious
+       - Backspaces present: human-like
+
+    5. ANSWER CORRECTNESS:
+       - Perfect reversal on first try + fast = strong bot signal
+       - Errors or near-misses = human-like
+
+    6. RHYTHM PATTERN: Humans pause more often mid-word while mentally scanning backwards.
+       Bots maintain perfectly even spacing throughout.
+
+    Scoring guide — humannessScore means HOW HUMAN the behaviour is (100 = definitely human, 0 = definitely bot):
+    - 0–20: fast + correct + rhythmic + no backspaces → bot
+    - 20–40: high WPM + correct + no backspaces → suspicious
+    - 40–60: moderate pace, some irregularity → ambiguous
+    - 60–80: slower pace, irregular timing or backspaces → likely human
+    - 80–100: slow + mistakes + irregular + hesitation pauses → human
+
+    Keystroke Data: [KEYSTROKES]
 
     Return ONLY a JSON object with:
     {
       "humannessScore": 0-100,
-      "reasoning": "A brief explanation"
+      "reasoning": "A brief explanation covering the key signals"
     }
   `;
 
@@ -65,19 +95,48 @@ export class AIEvaluator {
     Analyze this NUMBER SORTING task performance.
     The user was given 5 integers and asked to type them in ascending order.
 
-    Numbers given: [TARGET]
+    Context: [TARGET]
 
-    Bot Traps:
-    1. Humans pause to think before typing — expect irregular delays, especially at the start.
-    2. Bots sort and type instantly with uniform key intervals.
-    3. Humans may backspace and correct mistakes.
+    Evaluate ALL of the following signals:
 
-    Data: [KEYSTROKES]
+    1. PRE-TYPING PAUSE: Time from task shown to first keystroke.
+       - < 500ms: bot-like (no thinking time) → very suspicious
+       - 500ms–2s: fast but plausible
+       - > 2s: human thinking time → less suspicious
+
+    2. TOTAL TIME: Time from task shown to submission.
+       - < 5s: almost certainly AI
+       - 5–15s: human range
+       - > 15s: clearly human
+
+    3. KEYSTROKE INTERVALS: stdDev of gaps between keypresses.
+       - Very low stdDev (< 20ms): robotic, uniform → bot
+       - High stdDev (> 60ms): natural human variation
+
+    4. BACKSPACES: Any corrections made?
+       - Zero backspaces + correct answer: suspicious (bots don't mistype)
+       - Backspaces present: human-like
+
+    5. ANSWER CORRECTNESS:
+       - Always correct + fast + no backspaces = strong bot signal
+       - Wrong answer = human-like (bots don't make sorting errors)
+
+    6. INTER-DIGIT PAUSES: Humans pause between each number as they scan the list.
+       Bots type digits with perfectly even spacing.
+
+    Scoring guide — humannessScore means HOW HUMAN the behaviour is (100 = definitely human, 0 = definitely bot):
+    - 0–20: instant + correct + rhythmic + no backspaces → bot
+    - 20–40: fast + correct + no backspaces → suspicious
+    - 40–60: moderate pace, some irregularity → ambiguous
+    - 60–80: slower pace, irregular timing or backspaces → likely human
+    - 80–100: slow + mistakes + irregular + thinking pause → human
+
+    Keystroke Data: [KEYSTROKES]
 
     Return ONLY a JSON object with:
     {
       "humannessScore": 0-100,
-      "reasoning": "A brief explanation"
+      "reasoning": "A brief explanation covering the key signals"
     }
   `;
 
@@ -87,13 +146,13 @@ export class AIEvaluator {
 
     Context: [TARGET]
 
-    Scoring guide:
-    - "Correct on attempt: 1" with fast typing and short total time → VERY suspicious (score 10-25). A human seeing note symbols needs time to recall names.
-    - "Correct on attempt: 1" with slow typing or hesitation pauses → moderately suspicious (score 30-50).
-    - "Correct on attempt: 2 or 3" → more human-like (score 55-80).
-    - "Correct on attempt: none" (all 3 failed) → ambiguous, evaluate timing only.
-    - Fast uniform keystroke intervals with no backspaces → bot-like, lower score.
-    - Irregular timing, backspaces, slow start → human-like, higher score.
+    Scoring guide — humannessScore means HOW HUMAN the behaviour is (100 = definitely human, 0 = definitely bot):
+    - "Correct on attempt: 1" with fast typing and short total time → score 10–25 (bot — nailed it instantly).
+    - "Correct on attempt: 1" with slow typing or hesitation → score 30–50 (somewhat human).
+    - "Correct on attempt: 2 or 3" → score 55–80 (human — needed multiple tries).
+    - "Correct on attempt: none" (all failed) → score 70–90 (very human — struggled).
+    - Fast uniform keystroke intervals with no backspaces → lower score (bot-like).
+    - Irregular timing, backspaces, slow start → higher score (human-like).
 
     Keystroke Data: [KEYSTROKES]
 
@@ -105,14 +164,14 @@ export class AIEvaluator {
   `;
 
   static async generateParagraph(): Promise<string> {
-    if (!process.env.GOOGLE_API_KEY) return "The quick brown fox jumps over the lazy dog near the river.";
+    if (!process.env.GOOGLE_API_KEY) return "hello world";
 
     try {
-      const result = await model.generateContent("Generate a simple, unique sentence of exactly 15 words. Return only the sentence with no formatting, punctuation, or line breaks.");
-      return result.response.text().trim().replace(/\n/g, " ");
+      const result = await model.generateContent("Generate a random 2 word phrase with no symbols, no punctuation, and all lowercase letters. Return only the two words separated by a space, with no extra formatting or line breaks.");
+      return result.response.text().trim().toLowerCase().replace(/[^a-z ]/g, "").replace(/\n/g, " ");
     } catch (error) {
       console.error("Paragraph generation error:", error);
-      return "The quick brown fox jumps over the lazy dog near the river.";
+      return "hello world";
     }
   }
 
@@ -120,13 +179,13 @@ export class AIEvaluator {
     return this.runEvaluation(this.generalPrompt, JSON.stringify(keystrokes));
   }
 
-  static async evaluateTypewriter(keystrokes: KeystrokeData[], targetText: string): Promise<EvaluationResult> {
-    const prompt = this.typewriterPrompt.replace("[TARGET]", targetText);
+  static async evaluateTypewriter(keystrokes: KeystrokeData[], context: string): Promise<EvaluationResult> {
+    const prompt = this.typewriterPrompt.replace("[TARGET]", context);
     return this.runEvaluation(prompt, JSON.stringify(keystrokes));
   }
 
-  static async evaluateSorting(keystrokes: KeystrokeData[], numbers: number[]): Promise<EvaluationResult> {
-    const prompt = this.sortingPrompt.replace("[TARGET]", numbers.join(", "));
+  static async evaluateSorting(keystrokes: KeystrokeData[], context: string): Promise<EvaluationResult> {
+    const prompt = this.sortingPrompt.replace("[TARGET]", context);
     return this.runEvaluation(prompt, JSON.stringify(keystrokes));
   }
 

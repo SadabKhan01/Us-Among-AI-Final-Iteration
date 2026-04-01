@@ -1,6 +1,5 @@
 import { AIEvaluator } from "../services/AIEvaluator.js";
 import type { KeystrokeData } from "../services/AIEvaluator.js";
-import { HeuristicEvaluator } from "../services/HeuristicEvaluator.js";
 
 export interface Player {
   id: string;
@@ -101,73 +100,123 @@ export class PlayerManager {
     }
   }
 
-  // --- Shared Evaluation Pipeline ---
-
-  private async runTaskEvaluation(
-    keystrokes: KeystrokeData[],
-    aiEvaluator: (ks: KeystrokeData[]) => Promise<{ humannessScore: number }>,
-    playerId: string,
-    taskDurationMs: number,
-    preTypingPauseMs?: number
-  ): Promise<number> {
-    const player = this.players.get(playerId);
-    if (!player) return 0;
-
-    const heuristic = HeuristicEvaluator.analyze(keystrokes, taskDurationMs, preTypingPauseMs);
-    let humanness = heuristic.humannessScore;
-
-    if (heuristic.needsAI) {
-      console.log(`[PlayerManager] Escalating to AI for ${playerId}`);
-      const result = await aiEvaluator(keystrokes);
-      humanness = result.humannessScore;
-    }
-
-    // High humanness = acting human = more suspicious
-    // humanness 100 → +10 suspicion, humanness 0 → -10 suspicion
-    const suspicionImpact = (humanness - 50) / 5;
-    player.suspicionScore = Math.max(0, Math.min(100, player.suspicionScore + suspicionImpact));
-    player.activeTask = undefined;
-    return player.suspicionScore;
-  }
-
   // --- Task Submit ---
 
-  async evaluateTypewriterTask(id: string): Promise<{ suspicionScore: number; wpm: number; hasBackspaces: boolean }> {
+  async evaluateTypewriterTask(id: string, userAnswer: string): Promise<{ suspicionScore: number; wpm: number }> {
     const player = this.players.get(id);
     if (!player || !player.activeTask || player.activeTask.type !== "typewriter") {
-      return { suspicionScore: player?.suspicionScore || 0, wpm: 0, hasBackspaces: false };
+      return { suspicionScore: player?.suspicionScore || 0, wpm: 0 };
     }
     const { keystrokes, targetText, startedAt } = player.activeTask;
     const taskDurationMs = Date.now() - startedAt;
 
-    // WPM: count spaces typed (proxy for word boundaries in reversed text)
+    // WPM from spaces typed
     const spaceCount = keystrokes.filter((k) => k.key === " ").length;
-    const typingDurationMs =
-      keystrokes.length >= 2
-        ? keystrokes[keystrokes.length - 1]!.timestamp - keystrokes[0]!.timestamp
-        : taskDurationMs;
+    const typingDurationMs = keystrokes.length >= 2
+      ? keystrokes[keystrokes.length - 1]!.timestamp - keystrokes[0]!.timestamp
+      : taskDurationMs;
     const wpm = typingDurationMs > 0 ? Math.round((spaceCount / typingDurationMs) * 60000) : 0;
-    const hasBackspaces = keystrokes.some((k) => k.key === "Backspace");
 
-    const suspicionScore = await this.runTaskEvaluation(
-      keystrokes,
-      (ks) => AIEvaluator.evaluateTypewriter(ks, targetText),
-      id,
-      taskDurationMs
-    );
-    return { suspicionScore, wpm, hasBackspaces };
+    // Keystroke stats
+    const intervals: number[] = [];
+    for (let i = 1; i < keystrokes.length; i++) {
+      intervals.push(keystrokes[i]!.timestamp - keystrokes[i - 1]!.timestamp);
+    }
+    const mean = intervals.length > 0 ? intervals.reduce((a, b) => a + b, 0) / intervals.length : 0;
+    const stdDev = intervals.length > 0
+      ? Math.sqrt(intervals.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / intervals.length)
+      : 0;
+    const backspaces = keystrokes.filter((k) => k.key === "Backspace").length;
+
+    const reversedTarget = targetText.split("").reverse().join("");
+    const isCorrect = userAnswer.trim() === reversedTarget.trim();
+
+    const context = [
+      `Original text: "${targetText}"`,
+      `Expected reversed: "${reversedTarget}"`,
+      `User answer correct: ${isCorrect ? "YES" : "NO"}`,
+      `WPM: ${wpm}`,
+      `Total time: ${(taskDurationMs / 1000).toFixed(2)}s`,
+      `Keystroke count: ${keystrokes.length}`,
+      `Backspaces: ${backspaces}`,
+      `Keystroke interval stdDev: ${Math.round(stdDev)}ms`,
+      `Keystroke interval mean: ${Math.round(mean)}ms`,
+    ].join(" | ");
+
+    console.log(`[Typewriter] Context: ${context}`);
+
+    const result = await AIEvaluator.evaluateTypewriter(keystrokes, context);
+    console.log(`[Typewriter] Gemini humannessScore: ${result.humannessScore} | reasoning: ${result.reasoning}`);
+
+    // humannessScore = suspicion directly (high humanness = high suspicion = more human)
+    // WPM signal: high WPM = low suspicion (AI-like), low WPM = high suspicion (human-like)
+    let wpmSuspicion: number;
+    if (wpm > 80) wpmSuspicion = Math.round(10 + ((150 - Math.min(wpm, 150)) / 70) * 20); // 10–30
+    else if (wpm > 40) wpmSuspicion = Math.round(30 + ((80 - wpm) / 40) * 30);             // 30–60
+    else if (wpm > 15) wpmSuspicion = Math.round(60 + ((40 - wpm) / 25) * 20);             // 60–80
+    else wpmSuspicion = backspaces > 0 ? 95 : 80;
+
+    player.suspicionScore = Math.min(100, Math.round(result.humannessScore * 0.5 + wpmSuspicion * 0.5));
+    player.activeTask = undefined;
+    return { suspicionScore: player.suspicionScore, wpm };
   }
 
-  async evaluateSortingTask(id: string): Promise<{ suspicionScore: number; taskDurationMs: number }> {
+  async evaluateSortingTask(id: string, userAnswer: string): Promise<{ suspicionScore: number; taskDurationMs: number }> {
     const player = this.players.get(id);
     if (!player || !player.activeTask || player.activeTask.type !== "sorting") {
       return { suspicionScore: player?.suspicionScore || 0, taskDurationMs: 0 };
     }
     const { keystrokes, numbers, startedAt } = player.activeTask;
     const taskDurationMs = Date.now() - startedAt;
-    const preTypingPauseMs = (keystrokes[0]?.timestamp ?? Date.now()) - startedAt;
-    const suspicionScore = await this.runTaskEvaluation(keystrokes, (ks) => AIEvaluator.evaluateSorting(ks, numbers), id, taskDurationMs, preTypingPauseMs);
-    return { suspicionScore, taskDurationMs };
+    const preTypingPauseMs = keystrokes.length > 0 ? keystrokes[0]!.timestamp - startedAt : taskDurationMs;
+
+    const sortedCorrect = [...numbers].sort((a, b) => a - b).join(" ");
+    const isCorrect = userAnswer.trim() === sortedCorrect;
+
+    // Compute keystroke stats for context
+    const intervals: number[] = [];
+    for (let i = 1; i < keystrokes.length; i++) {
+      intervals.push(keystrokes[i]!.timestamp - keystrokes[i - 1]!.timestamp);
+    }
+    const mean = intervals.length > 0 ? intervals.reduce((a, b) => a + b, 0) / intervals.length : 0;
+    const stdDev = intervals.length > 0
+      ? Math.sqrt(intervals.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / intervals.length)
+      : 0;
+    const backspaces = keystrokes.filter((k) => k.key === "Backspace").length;
+
+    const context = [
+      `Numbers given: ${numbers.join(", ")}`,
+      `Correct answer: ${sortedCorrect}`,
+      `User answer: "${userAnswer.trim()}"`,
+      `Answer correct: ${isCorrect ? "YES" : "NO"}`,
+      `Total time: ${(taskDurationMs / 1000).toFixed(2)}s`,
+      `Pre-typing pause: ${(preTypingPauseMs / 1000).toFixed(2)}s`,
+      `Keystroke count: ${keystrokes.length}`,
+      `Backspaces: ${backspaces}`,
+      `Keystroke interval stdDev: ${Math.round(stdDev)}ms`,
+      `Keystroke interval mean: ${Math.round(mean)}ms`,
+    ].join(" | ");
+
+    console.log(`[Sorting] Context: ${context}`);
+
+    const result = await AIEvaluator.evaluateSorting(keystrokes, context);
+    console.log(`[Sorting] Gemini humannessScore: ${result.humannessScore} | reasoning: ${result.reasoning}`);
+
+    // humannessScore = suspicion directly (high = human, low = AI)
+    // Time signal: fast = low suspicion (AI-like), slow = high suspicion (human-like)
+    const taskDurationSec = taskDurationMs / 1000;
+    let timeSuspicion: number;
+    if (taskDurationSec < 5) {
+      timeSuspicion = Math.round((taskDurationSec / 5) * 20);        // 0–20 (AI range)
+    } else if (taskDurationSec <= 15) {
+      timeSuspicion = Math.round(20 + ((taskDurationSec - 5) / 10) * 60); // 20–80
+    } else {
+      timeSuspicion = 90;                                            // clearly human
+    }
+
+    player.suspicionScore = Math.min(100, Math.round(result.humannessScore * 0.5 + timeSuspicion * 0.5));
+    player.activeTask = undefined;
+    return { suspicionScore: player.suspicionScore, taskDurationMs };
   }
 
   recordNotesAttempt(id: string, answer: string): { attemptsLeft: number; correct: boolean } {
@@ -209,14 +258,15 @@ export class PlayerManager {
       answers.every((ans) => a.toLowerCase().includes(ans.toLowerCase()))
     ) + 1; // 0 if none correct
 
-    let baseSuspicion = 100 - result.humannessScore;
+    // humannessScore = suspicion directly (high = human, low = AI)
+    let baseSuspicion = result.humannessScore;
 
-    // First-try correct → bump suspicion up significantly
-    if (attemptNumber === 1) baseSuspicion = Math.min(100, baseSuspicion + 30);
-    // Second-try → small bump
-    else if (attemptNumber === 2) baseSuspicion = Math.min(100, baseSuspicion + 10);
-    // Failed all → lower suspicion (at least tried like a human)
-    else if (attemptNumber === 0) baseSuspicion = Math.max(0, baseSuspicion - 20);
+    // First-try correct → lower suspicion (AI nails it instantly)
+    if (attemptNumber === 1) baseSuspicion = Math.max(0, baseSuspicion - 30);
+    // Second-try → slight reduction
+    else if (attemptNumber === 2) baseSuspicion = Math.max(0, baseSuspicion - 10);
+    // Failed all → boost suspicion (very human to struggle)
+    else if (attemptNumber === 0) baseSuspicion = Math.min(100, baseSuspicion + 20);
 
     player.suspicionScore = Math.max(0, Math.min(100, baseSuspicion));
     player.activeTask = undefined;

@@ -52,8 +52,8 @@ const App: React.FC = () => {
             onKey={(key, timestamp) => {
               socket?.emit("task-keystroke", { key, timestamp });
             }}
-            onComplete={() => {
-              socket?.emit("submit-task:typewriter");
+            onComplete={(answer) => {
+              socket?.emit("submit-task:typewriter", { answer });
             }}
             onCancel={() => {
               setActiveTask(null);
@@ -95,7 +95,7 @@ const App: React.FC = () => {
 
               <div style={{ backgroundColor: "rgba(0,0,0,0.3)", borderRadius: 12, padding: "12px 20px" }}>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>SUSPICION SCORE</div>
-                <div style={{ fontSize: 36, fontWeight: 700, color: taskResult.suspicionScore > 60 ? "#ef4444" : taskResult.suspicionScore > 35 ? "#f59e0b" : "#22c55e" }}>
+                <div style={{ fontSize: 36, fontWeight: 700, color: taskResult.suspicionScore >= 60 ? "#22c55e" : taskResult.suspicionScore >= 35 ? "#f59e0b" : "#ef4444" }}>
                   {Math.round(taskResult.suspicionScore)}<span style={{ fontSize: 14 }}> / 100</span>
                 </div>
               </div>
@@ -104,13 +104,13 @@ const App: React.FC = () => {
                 backgroundColor: "rgba(0,0,0,0.3)",
                 borderRadius: 12,
                 padding: "12px 20px",
-                border: `1px solid ${taskResult.verdict === "AI" ? "#ef4444" : taskResult.verdict === "Suspicious" ? "#f59e0b" : "#22c55e"}`,
+                border: `1px solid ${taskResult.verdict === "Human" ? "#22c55e" : taskResult.verdict === "Likely Human" ? "#86efac" : taskResult.verdict === "Suspicious" ? "#f59e0b" : "#ef4444"}`,
               }}>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>VERDICT</div>
                 <div style={{
                   fontSize: 22,
                   fontWeight: 700,
-                  color: taskResult.verdict === "AI" ? "#ef4444" : taskResult.verdict === "Suspicious" ? "#f59e0b" : "#22c55e"
+                  color: taskResult.verdict === "Human" ? "#22c55e" : taskResult.verdict === "Likely Human" ? "#86efac" : taskResult.verdict === "Suspicious" ? "#f59e0b" : "#ef4444"
                 }}>
                   {taskResult.verdict}
                 </div>
