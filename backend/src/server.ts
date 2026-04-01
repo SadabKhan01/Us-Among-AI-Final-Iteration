@@ -4,11 +4,18 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
+<<<<<<< HEAD
 import { PlayerManager } from "./logic/PlayerManager.js";
 import { AIEvaluator } from "./services/AIEvaluator.js";
+=======
 import { GoogleGenAI } from "@google/genai";
+>>>>>>> origin/brett-backend-2
 
 dotenv.config();
+
+if (!process.env.GEMINI_API_KEY) {
+  throw new Error("Missing GEMINI_API_KEY");
+}
 
 const app = express();
 const httpServer = createServer(app);
@@ -23,6 +30,7 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
+<<<<<<< HEAD
 const playerManager = new PlayerManager();
 
 io.on("connection", (socket) => {
@@ -78,13 +86,16 @@ io.on("connection", (socket) => {
   });
 });
 
+const PORT = 3001; 
+=======
 const PORT = 3001;
+>>>>>>> origin/brett-backend-2
 httpServer.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+  apiKey: process.env.GEMINI_API_KEY,
 });
 
 export async function askGemini(text: string): Promise<string> {
@@ -101,6 +112,8 @@ export async function askGemini(text: string): Promise<string> {
   }
 }
 
+
+
 app.get("/sorting", async (req: Request, res: Response) => {
   try {
     const question = `
@@ -109,6 +122,7 @@ Example: [1,2,3,4,5]
 `;
 
     const answer = await askGemini(question);
+    
 
     res.json({ answer });
 
@@ -122,13 +136,17 @@ Example: [1,2,3,4,5]
 });
 
 app.get("/notes", async (req: Request, res: Response) => {
-  const notes = ["♩", "♪", "♫", "♬", "♭", "♮", "♯"];
+  
+    const notes = ["♩", "♪", "♫", "♬", "♭", "♮", "♯"];
+   
+    const getRandomElement = <T>(arr: T[]): T => {
+        return arr[Math.floor(Math.random() * arr.length)];
+      };
 
-  const getRandomElement = <T>(arr: T[]): T => {
-    return arr[Math.floor(Math.random() * arr.length)];
-  };
+    const randomNote = getRandomElement(notes);
 
-  const randomNote = getRandomElement(notes);
 
-  res.json(randomNote);
+    res.json(randomNote);
+ 
+  
 });
