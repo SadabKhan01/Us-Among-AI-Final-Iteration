@@ -143,16 +143,25 @@ io.on("connection", (socket) => {
   // --- Notes Task ---
 
   socket.on("request-task:notes", () => {
-    const note = NOTES[Math.floor(Math.random() * NOTES.length)]!;
-    playerManager.startNotesTask(socket.id, note.symbol);
-    socket.emit("task-start:notes", { symbol: note.symbol, answer: note.name });
+    // Pick 3 unique random notes
+    const shuffled = [...NOTES].sort(() => Math.random() - 0.5).slice(0, 3);
+    const symbols = shuffled.map((n) => n.symbol);
+    const answers = shuffled.map((n) => n.name);
+    playerManager.startNotesTask(socket.id, symbols, answers);
+    socket.emit("task-start:notes", { symbols, answers });
   });
 
-  socket.on("submit-task:notes", async () => {
-    const newScore = await playerManager.evaluateNotesTask(socket.id);
-    io.emit("players-update", playerManager.getAllPlayers());
-    socket.emit("suspicion-update", { score: newScore });
-    socket.emit("task-complete:notes");
+  socket.on("attempt-task:notes", async (data: { answer: string }) => {
+    const { attemptsLeft, correct } = playerManager.recordNotesAttempt(socket.id, data.answer);
+    if (correct || attemptsLeft === 0) {
+      // Final — evaluate via Gemini
+      const newScore = await playerManager.evaluateNotesTask(socket.id);
+      io.emit("players-update", playerManager.getAllPlayers());
+      socket.emit("suspicion-update", { score: newScore, verdict: correct ? "Answered Correctly" : "Failed All Attempts" });
+      socket.emit("task-complete:notes", { correct, attemptsLeft });
+    } else {
+      socket.emit("attempt-result:notes", { correct, attemptsLeft });
+    }
   });
 
   // --- Shared keystroke event (used by all tasks) ---

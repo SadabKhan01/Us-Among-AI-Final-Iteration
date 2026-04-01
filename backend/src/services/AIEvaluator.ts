@@ -83,16 +83,19 @@ export class AIEvaluator {
 
   private static notesPrompt = `
     Analyze this MUSIC NOTE IDENTIFICATION task performance.
-    The user was shown a music note symbol and asked to type its name (e.g. "c sharp", "quarter note").
+    The user was shown 3 music note symbols and had up to 3 attempts to name all of them.
 
-    Note shown: [TARGET]
+    Context: [TARGET]
 
-    Bot Traps:
-    1. Humans pause to recall the note name — expect a thinking delay before the first keystroke.
-    2. Bots respond instantly with zero hesitation.
-    3. Humans may type slowly, self-correct, or rephrase.
+    Scoring guide:
+    - "Correct on attempt: 1" with fast typing and short total time → VERY suspicious (score 10-25). A human seeing note symbols needs time to recall names.
+    - "Correct on attempt: 1" with slow typing or hesitation pauses → moderately suspicious (score 30-50).
+    - "Correct on attempt: 2 or 3" → more human-like (score 55-80).
+    - "Correct on attempt: none" (all 3 failed) → ambiguous, evaluate timing only.
+    - Fast uniform keystroke intervals with no backspaces → bot-like, lower score.
+    - Irregular timing, backspaces, slow start → human-like, higher score.
 
-    Data: [KEYSTROKES]
+    Keystroke Data: [KEYSTROKES]
 
     Return ONLY a JSON object with:
     {

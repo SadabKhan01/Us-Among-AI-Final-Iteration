@@ -12,7 +12,7 @@ export interface Player {
   activeTask?:
     | { type: "typewriter"; targetText: string; keystrokes: KeystrokeData[]; startedAt: number }
     | { type: "sorting"; numbers: number[]; keystrokes: KeystrokeData[]; startedAt: number }
-    | { type: "notes"; note: string; keystrokes: KeystrokeData[]; startedAt: number };
+    | { type: "notes"; notes: string[]; answers: string[]; keystrokes: KeystrokeData[]; startedAt: number; attemptsLeft: number; attemptAnswers: string[] };
 }
 
 export class PlayerManager {
@@ -85,10 +85,10 @@ export class PlayerManager {
     }
   }
 
-  startNotesTask(id: string, note: string): void {
+  startNotesTask(id: string, notes: string[], answers: string[]): void {
     const player = this.players.get(id);
     if (player) {
-      player.activeTask = { type: "notes", note, keystrokes: [], startedAt: Date.now() };
+      player.activeTask = { type: "notes", notes, answers, keystrokes: [], startedAt: Date.now(), attemptsLeft: 3, attemptAnswers: [] };
     }
   }
 
@@ -170,12 +170,57 @@ export class PlayerManager {
     return { suspicionScore, taskDurationMs };
   }
 
+  recordNotesAttempt(id: string, answer: string): { attemptsLeft: number; correct: boolean } {
+    const player = this.players.get(id);
+    if (!player || !player.activeTask || player.activeTask.type !== "notes") return { attemptsLeft: 0, correct: false };
+    const task = player.activeTask;
+    task.attemptAnswers.push(answer);
+    task.attemptsLeft = Math.max(0, task.attemptsLeft - 1);
+    const lower = answer.toLowerCase();
+    const correct = task.answers.every((a) => lower.includes(a.toLowerCase().trim()));
+    return { attemptsLeft: task.attemptsLeft, correct };
+  }
+
   async evaluateNotesTask(id: string): Promise<number> {
     const player = this.players.get(id);
     if (!player || !player.activeTask || player.activeTask.type !== "notes") return player?.suspicionScore || 0;
-    const { keystrokes, note, startedAt } = player.activeTask;
+    const { keystrokes, notes, answers, attemptAnswers, startedAt } = player.activeTask;
     const taskDurationMs = Date.now() - startedAt;
-    return this.runTaskEvaluation(keystrokes, (ks) => AIEvaluator.evaluateNotes(ks, note), id, taskDurationMs);
+
+    // Always use Gemini for notes — heuristics alone aren't reliable for short answers
+    const context = [
+      `Notes shown: ${notes.join(", ")}`,
+      `Correct answers: ${answers.join(", ")}`,
+      `Attempts used: ${attemptAnswers.length}/3`,
+      `User attempts: ${attemptAnswers.join(" → ")}`,
+      `Total time: ${(taskDurationMs / 1000).toFixed(1)}s`,
+      `Correct on attempt: ${attemptAnswers.findIndex((a) => answers.every((ans) => a.toLowerCase().includes(ans.toLowerCase()))) + 1 || "none"}`,
+    ].join(" | ");
+
+    const result = await AIEvaluator.evaluateNotes(keystrokes, context);
+    console.log(`[Notes] Gemini humannessScore: ${result.humannessScore} | reasoning: ${result.reasoning}`);
+
+    // For notes, set suspicion directly from this evaluation rather than applying a small delta.
+    // humanness 0  → suspicion 100 (bot-like)
+    // humanness 50 → suspicion 50  (ambiguous)
+    // humanness 100 → suspicion 0  (very human)
+    // But we also factor in attempt number: first-try correct = boost suspicion
+    const attemptNumber = attemptAnswers.findIndex((a) =>
+      answers.every((ans) => a.toLowerCase().includes(ans.toLowerCase()))
+    ) + 1; // 0 if none correct
+
+    let baseSuspicion = 100 - result.humannessScore;
+
+    // First-try correct → bump suspicion up significantly
+    if (attemptNumber === 1) baseSuspicion = Math.min(100, baseSuspicion + 30);
+    // Second-try → small bump
+    else if (attemptNumber === 2) baseSuspicion = Math.min(100, baseSuspicion + 10);
+    // Failed all → lower suspicion (at least tried like a human)
+    else if (attemptNumber === 0) baseSuspicion = Math.max(0, baseSuspicion - 20);
+
+    player.suspicionScore = Math.max(0, Math.min(100, baseSuspicion));
+    player.activeTask = undefined;
+    return player.suspicionScore;
   }
 
   getAllPlayers(): Player[] {
