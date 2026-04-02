@@ -1,7 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(node -e \"const s = require\\('socket.io-client'\\); console.log\\(Object.keys\\(s\\)\\)\")",
+      "Bash(node -e \"const t = require\\('c:/Users/wade07/OneDrive - Simon Fraser University \\(1sfu\\)/GitHub/Hack01/frontend/node_modules/socket.io-client/package.json'\\); console.log\\(t.main, t.types, t.exports?.['.']\\)\")",
+      "Bash(npm run:*)",
+      "Bash(curl -s http://localhost:3001)",
+      "Bash(curl -s \"http://localhost:3001/socket.io/?EIO=4&transport=polling\")",
+      "Bash(netstat -ano)",
+      "Bash(findstr :3001)",
+      "Bash(taskkill /PID 29024 /F)",
+      "Bash(cmd /c \"taskkill /PID 29024 /F\")",
+      "Bash(cmd /c \"taskkill /PID 29024 /F 2>&1\")"
     ]
   }
 }

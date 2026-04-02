@@ -30,13 +30,13 @@ function randomIntegers(count: number, min = 1, max = 99): number[] {
 
 // Helper: pick random note
 const NOTES = [
-  { symbol: "♩", name: "quarter note" },
-  { symbol: "♪", name: "eighth note" },
-  { symbol: "♫", name: "beamed eighth notes" },
-  { symbol: "♬", name: "beamed sixteenth notes" },
-  { symbol: "♭", name: "flat" },
-  { symbol: "♮", name: "natural" },
-  { symbol: "♯", name: "sharp" },
+  { symbol: "Q", name: "Q" },
+  { symbol: "E", name: "E" },
+  { symbol: "B", name: "B" },
+  { symbol: "S", name: "S" },
+  { symbol: "F", name: "F" },
+  { symbol: "N", name: "N" },
+  { symbol: "A", name: "A" },
 ];
 
 io.on("connection", (socket) => {
@@ -151,7 +151,7 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = 3001;
+const PORT = 3002;
 httpServer.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
