@@ -225,8 +225,13 @@ export class PlayerManager {
     const task = player.activeTask;
     task.attemptAnswers.push(answer);
     task.attemptsLeft = Math.max(0, task.attemptsLeft - 1);
-    const lower = answer.toLowerCase();
-    const correct = task.answers.every((a) => lower.includes(a.toLowerCase().trim()));
+    const lower = answer.toLowerCase().replace(/[^a-z]/g, "");
+    const expected = task.answers.join("").toLowerCase().replace(/[^a-z]/g, "");
+    const correct = lower === expected;
+    
+    console.log(`[Vinyl Task] Input from frontend: ${answer}`);
+    console.log(`[Vinyl Task] Generated solution: ${task.answers.join("")}`);
+
     return { attemptsLeft: task.attemptsLeft, correct };
   }
 

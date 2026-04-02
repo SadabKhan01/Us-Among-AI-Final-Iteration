@@ -26,11 +26,12 @@ function TypewriterTask({ onComplete, onFail }: {
   useEffect(() => {
     const socket = getSocket()
     socket.emit('request-task:typewriter')
-    socket.once('task-start:typewriter', (data: { text: string }) => {
+    const onStart = (data: { text: string }) => {
       setTargetString(data.text.toUpperCase())
-    })
+    }
+    socket.on('task-start:typewriter', onStart)
     return () => {
-      socket.off('task-start:typewriter')
+      socket.off('task-start:typewriter', onStart)
     }
   }, [])
 
@@ -147,10 +148,11 @@ function SortingTask({ onComplete, onFail }: {
   useEffect(() => {
     const socket = getSocket()
     socket.emit('request-task:sorting')
-    socket.once('task-start:sorting', (data: { numbers: number[] }) => {
+    const onStart = (data: { numbers: number[] }) => {
       setNumbers(data.numbers)
-    })
-    return () => { socket.off('task-start:sorting') }
+    }
+    socket.on('task-start:sorting', onStart)
+    return () => { socket.off('task-start:sorting', onStart) }
   }, [])
 
   const handleSelect = (idx: number) => {
@@ -306,11 +308,12 @@ function VinylTask({ onComplete, onFail, onScore }: {
   useEffect(() => {
     const socket = getSocket()
     socket.emit('request-task:notes')
-    socket.once('task-start:notes', (data: { symbols: string[]; answers: string[] }) => {
+    const onStart = (data: { symbols: string[]; answers: string[] }) => {
       setSymbols(data.symbols)
       setPhase('playing')
-    })
-    return () => { socket.off('task-start:notes') }
+    }
+    socket.on('task-start:notes', onStart)
+    return () => { socket.off('task-start:notes', onStart) }
   }, [])
 
   // Show each letter one by one, then switch to input phase
@@ -369,34 +372,40 @@ function VinylTask({ onComplete, onFail, onScore }: {
       setTimeout(() => onCompleteRef.current(data.correct ? 100 : 0, time), 500)
     }
 
+    const onAttemptResult = (data: { correct: boolean; attemptsLeft: number }) => {
+      setTyped([])
+      inputRef.current?.focus()
+    }
+
     socket.on('suspicion-update', onSuspicionUpdate)
     socket.on('task-complete:notes', onTaskComplete)
+    socket.on('attempt-result:notes', onAttemptResult)
     return () => {
       socket.off('suspicion-update', onSuspicionUpdate)
       socket.off('task-complete:notes', onTaskComplete)
+      socket.off('attempt-result:notes', onAttemptResult)
     }
   }, [])
+
+  // Auto-submit when all 3 letters typed
+  useEffect(() => {
+    if (!symbols || typed.length !== symbols.length || done) return
+    const answer = typed.join('')
+    getSocket().emit('attempt-task:notes', { answer })
+  }, [typed, symbols, done])
 
   // Capture single key presses — each letter press fills one slot
   useEffect(() => {
     if (phase !== 'input' || failed || done || !symbols) return
 
     const handleKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
       const key = e.key.toUpperCase()
       if (key.length !== 1 || !/[A-Z]/.test(key)) return
       e.preventDefault()
 
       getSocket().emit('task-keystroke', { key, timestamp: Date.now() })
-
-      setTyped(prev => {
-        const next = [...prev, key]
-        if (next.length === symbols.length) {
-          // Auto-submit
-          const answer = next.join('')
-          getSocket().emit('attempt-task:notes', { answer })
-        }
-        return next
-      })
+      setTyped(prev => prev.length < symbols.length ? [...prev, key] : prev)
     }
 
     window.addEventListener('keydown', handleKey)
