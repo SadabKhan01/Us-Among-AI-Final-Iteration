@@ -140,7 +140,7 @@ function SortingTask({ onComplete, onFail }: {
   onFail: (reason: string) => void
 }) {
   const [numbers, setNumbers] = useState<number[] | null>(null)
-  const [selected, setSelected] = useState<number[]>([]) // indices into numbers[]
+  const [typedValues, setTypedValues] = useState<string[]>(['', '', '', '', ''])
   const [startTime] = useState(Date.now())
   const [done, setDone] = useState(false)
 
@@ -155,24 +155,23 @@ function SortingTask({ onComplete, onFail }: {
     return () => { socket.off('task-start:sorting', onStart) }
   }, [])
 
-  const handleSelect = (idx: number) => {
+  const handleType = (i: number, val: string) => {
     if (done || !numbers) return
-    // Deselect if already picked
-    if (selected.includes(idx)) {
-      setSelected(prev => prev.filter(i => i !== idx))
-      return
-    }
-    getSocket().emit('task-keystroke', { key: String(numbers[idx]), timestamp: Date.now() })
-    const next = [...selected, idx]
-    setSelected(next)
+    // Only allow digits
+    if (val !== '' && !/^\d+$/.test(val)) return
+    getSocket().emit('task-keystroke', { key: val, timestamp: Date.now() })
+    const next = [...typedValues]
+    next[i] = val
+    setTypedValues(next)
 
-    // Auto-submit once all 5 picked
-    if (next.length === numbers.length) {
+    // Auto-submit once all boxes filled
+    if (next.every(v => v !== '')) {
       setDone(true)
-      const answer = next.map(i => numbers[i]).join(' ')
+      const typed = next.map(Number)
+      const answer = typed.join(' ')
       const time = Date.now() - startTime
       const sorted = [...numbers].sort((a, b) => a - b)
-      const isCorrect = next.map(i => numbers[i]).every((v, i) => v === sorted[i])
+      const isCorrect = typed.every((v, idx) => v === sorted[idx])
       setTimeout(() => onComplete(isCorrect ? 100 : 0, time, answer), 300)
     }
   }
@@ -185,14 +184,14 @@ function SortingTask({ onComplete, onFail }: {
     )
   }
 
-  const sortedAnswer = selected.map(i => numbers[i])
+  const filledCount = typedValues.filter(v => v !== '').length
 
   return (
     <div className="space-y-6">
       <div className="text-center">
         <p className="text-xs font-mono text-muted-foreground mb-2">TASK: ARRAY SORT</p>
         <p className="text-sm text-muted-foreground">
-          Click numbers in <span className="text-neon-pink">ascending order</span>
+          Type numbers in <span className="text-neon-pink">ascending order</span>
         </p>
       </div>
 
@@ -200,78 +199,46 @@ function SortingTask({ onComplete, onFail }: {
       <div>
         <p className="text-[10px] font-mono text-muted-foreground mb-2">INPUT ARRAY:</p>
         <div className="flex gap-2">
-          {numbers.map((n, i) => {
-            const isPicked = selected.includes(i)
-            const pickOrder = selected.indexOf(i)
-            return (
-              <button
-                key={i}
-                onClick={() => handleSelect(i)}
-                disabled={done}
-                className={cn(
-                  'relative flex-1 h-12 rounded-md border-2 font-mono font-bold text-lg transition-all',
-                  isPicked
-                    ? 'border-neon-pink/40 bg-neon-pink/5 text-neon-pink/40'
-                    : 'border-neon-pink bg-neon-pink/10 text-neon-pink hover:bg-neon-pink/20'
-                )}
-              >
-                {n}
-                {isPicked && (
-                  <span className="absolute -top-2 -right-2 w-4 h-4 rounded-full bg-neon-pink text-background text-[9px] flex items-center justify-center font-bold">
-                    {pickOrder + 1}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-        {/* Connector line */}
-        <div className="flex gap-2 mt-1">
-          {numbers.map((_, i) => (
-            <div key={i} className="flex-1 flex items-center justify-center">
-              {i < numbers.length - 1 && (
-                <div className="w-full h-px bg-neon-pink/30" />
-              )}
+          {numbers.map((n, i) => (
+            <div
+              key={i}
+              className="flex-1 h-12 rounded-md border-2 font-mono font-bold text-lg flex items-center justify-center border-neon-pink bg-neon-pink/10 text-neon-pink"
+            >
+              {n}
             </div>
           ))}
         </div>
       </div>
 
-      {/* Sorted output row */}
+      {/* Sorted input row */}
       <div>
-        <p className="text-[10px] font-mono text-muted-foreground mb-2">SORTED OUTPUT:</p>
-        {/* Connector line */}
-        <div className="flex gap-2 mb-1">
-          {numbers.map((_, i) => (
-            <div key={i} className="flex-1 flex items-center justify-center">
-              {i < numbers.length - 1 && (
-                <div className="w-full h-px bg-neon-cyan/30" />
-              )}
-            </div>
-          ))}
-        </div>
+        <p className="text-[10px] font-mono text-muted-foreground mb-2">SORTED INPUT:</p>
         <div className="flex gap-2">
           {numbers.map((_, i) => (
-            <div
+            <input
               key={i}
+              type="text"
+              inputMode="numeric"
+              disabled={done}
+              value={typedValues[i]}
+              onChange={e => handleType(i, e.target.value)}
+              placeholder="—"
               className={cn(
-                'flex-1 h-12 rounded-md border-2 font-mono font-bold text-lg flex items-center justify-center transition-all',
-                sortedAnswer[i] !== undefined
+                'flex-1 w-0 min-w-0 h-12 rounded-md border-2 font-mono font-bold text-lg text-center transition-all bg-transparent outline-none',
+                typedValues[i] !== ''
                   ? 'border-neon-cyan bg-neon-cyan/10 text-neon-cyan'
                   : 'border-border/40 bg-secondary/20 text-muted-foreground/30'
               )}
-            >
-              {sortedAnswer[i] ?? '—'}
-            </div>
+            />
           ))}
         </div>
       </div>
 
       <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground/60">
-        <span>{selected.length}/{numbers.length} SELECTED</span>
-        {selected.length > 0 && !done && (
+        <span>{filledCount}/{numbers.length} FILLED</span>
+        {filledCount > 0 && !done && (
           <button
-            onClick={() => setSelected([])}
+            onClick={() => setTypedValues(['', '', '', '', ''])}
             className="text-destructive/60 hover:text-destructive transition-colors"
           >
             RESET

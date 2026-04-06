@@ -36,6 +36,14 @@ export function VerdictScreen() {
 
   useEffect(() => {
     if (phase === 'reveal' && verdict) {
+      const audio = new Audio(verdict.isAI ? '/sounds/win.mp3' : '/sounds/lose.mp3')
+      audio.play().catch(() => {})
+      return () => { audio.pause(); audio.currentTime = 0 }
+    }
+  }, [phase, verdict?.isAI])
+
+  useEffect(() => {
+    if (phase === 'reveal' && verdict) {
       // Reveal analysis lines one by one
       const totalLines = verdict.analysis.length + 3 // +3 for verdict, score, and button
       const interval = setInterval(() => {
